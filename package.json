@@ -1,0 +1,52 @@
+{
+  "name": "clockwork",
+  "title": "Clockwork",
+  "description": "Manage clockwork project sessions across your codebase",
+  "icon": "command-icon.png",
+  "author": "space",
+  "license": "MIT",
+  "version": "1.0.0",
+  "commands": [
+    {
+      "name": "index",
+      "title": "Browse Sessions",
+      "description": "View and manage clockwork sessions across all projects",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "scanFolders",
+      "type": "textfield",
+      "required": false,
+      "title": "Scan Folders",
+      "description": "Comma-separated list of folders to scan for clockwork projects",
+      "default": "~/Documents,~/Projects,~/Code"
+    },
+    {
+      "name": "additionalProjects",
+      "type": "textfield",
+      "required": false,
+      "title": "Additional Projects",
+      "description": "Comma-separated list of additional project paths to include",
+      "default": ""
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.104.11",
+    "js-yaml": "^4.1.1"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^2.1.1",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint",
+    "publish": "ray publish"
+  }
+}
