@@ -11,9 +11,7 @@ import {
   StateFrontmatter,
 } from "./types";
 
-const MAX_DEPTH = 5;
-
-function expandPath(p: string): string {
+export function expandPath(p: string): string {
   if (p.startsWith("~")) {
     return join(homedir(), p.slice(1));
   }
@@ -30,36 +28,139 @@ function parseFrontmatter<T>(content: string): T | null {
   }
 }
 
-function findSessionFiles(knowledgeDir: string): string[] {
-  if (!existsSync(knowledgeDir)) return [];
-  try {
-    return readdirSync(knowledgeDir).filter(
-      (f) => f.startsWith("SESSION-STATE") && f.endsWith(".md")
-    );
-  } catch {
-    return [];
+/**
+ * Parse session info from markdown content when frontmatter is missing.
+ * Handles real-world clockwork files that don't have YAML frontmatter.
+ */
+function parseFromMarkdown(content: string, filePath: string): Partial<StateFrontmatter> | null {
+  const result: Partial<StateFrontmatter> = {};
+
+  // Extract project name from:
+  // "# Session State: we-shape" or "# State: PROJECT" or "# State: PROJECT-NAME"
+  const projectMatch = content.match(/^#\s*(?:Session\s+)?State:\s*(.+?)$/im);
+  if (projectMatch) {
+    result.project = projectMatch[1].trim();
   }
+
+  // Extract session from:
+  // "> **Session:** Ideation-1" or "> **Current Session:** 5"
+  const sessionMatch = content.match(/>\s*\*\*(?:Current\s+)?Session:\*\*\s*(.+?)(?:\s*\||\s*$)/im);
+  if (sessionMatch) {
+    result.current_session = sessionMatch[1].trim();
+  }
+
+  // Extract status from:
+  // "> **Status:** IN_PROGRESS" or "| **Status:** READY"
+  const statusMatch = content.match(/\*\*Status:\*\*\s*([A-Z_]+)/i);
+  if (statusMatch) {
+    const rawStatus = statusMatch[1].toUpperCase().trim();
+    // Normalize status values
+    const statusMap: Record<string, SessionStatus> = {
+      "READY": "READY",
+      "IN_PROGRESS": "IN_PROGRESS",
+      "IN PROGRESS": "IN_PROGRESS",
+      "INPROGRESS": "IN_PROGRESS",
+      "TO_VERIFY": "TO_VERIFY",
+      "TO VERIFY": "TO_VERIFY",
+      "TOVERIFY": "TO_VERIFY",
+      "BLOCKED": "BLOCKED",
+      "COMPLETE": "COMPLETE",
+      "COMPLETED": "COMPLETE",
+      "DONE": "COMPLETE",
+      "HANDOFF": "TO_VERIFY", // Treat HANDOFF as TO_VERIFY
+    };
+    result.status = statusMap[rawStatus] || "IN_PROGRESS";
+  }
+
+  // Extract goal from:
+  // "**Goal:** Build something" or "> **Goal:** Build something"
+  const goalMatch = content.match(/\*\*Goal:\*\*\s*(.+?)$/im);
+
+  // If we found at least project or session, return what we have
+  if (result.project || result.current_session) {
+    // Build sessions map if we have session info
+    if (result.current_session) {
+      result.sessions = {
+        [result.current_session]: {
+          status: result.status || "IN_PROGRESS",
+          goal: goalMatch ? goalMatch[1].trim() : undefined,
+        },
+      };
+    }
+    return result;
+  }
+
+  return null;
 }
 
-function parseStateFile(filePath: string, projectPath: string, projectName: string, projectGit: ReturnType<typeof getGitInfo>): Session[] {
+function findSessionStateFiles(dir: string): string[] {
+  const files: string[] = [];
+
+  // Check knowledge/ directory (standard location)
+  const knowledgeDir = join(dir, "knowledge");
+  if (existsSync(knowledgeDir)) {
+    try {
+      const knowledgeFiles = readdirSync(knowledgeDir)
+        .filter((f) => f.startsWith("SESSION-STATE") && f.endsWith(".md"))
+        .map((f) => join(knowledgeDir, f));
+      files.push(...knowledgeFiles);
+    } catch {
+      // Permission denied or other error
+    }
+  }
+
+  // Also check root directory (some projects have it there)
+  try {
+    const rootFiles = readdirSync(dir)
+      .filter((f) => f.startsWith("SESSION-STATE") && f.endsWith(".md"))
+      .map((f) => join(dir, f));
+    files.push(...rootFiles);
+  } catch {
+    // Permission denied or other error
+  }
+
+  return files;
+}
+
+function parseStateFile(
+  filePath: string,
+  projectPath: string,
+  projectName: string,
+  projectGit: ReturnType<typeof getGitInfo>
+): Session[] {
   const sessions: Session[] = [];
 
   try {
     const content = readFileSync(filePath, "utf-8");
-    const frontmatter = parseFrontmatter<StateFrontmatter>(content);
 
+    // Try YAML frontmatter first
+    let frontmatter = parseFrontmatter<StateFrontmatter>(content);
+
+    // Fall back to markdown parsing if no frontmatter
     if (!frontmatter || !frontmatter.project) {
+      const parsed = parseFromMarkdown(content, filePath);
+      if (parsed) {
+        frontmatter = {
+          project: parsed.project || projectName,
+          current_session: parsed.current_session || "1",
+          status: parsed.status || "IN_PROGRESS",
+          sessions: parsed.sessions,
+        } as StateFrontmatter;
+      }
+    }
+
+    if (!frontmatter) {
       return sessions;
     }
 
-    // Extract track from filename if present (SESSION-STATE-WEB.md -> WEB)
+    // Extract track from filename (SESSION-STATE-WEB.md -> web)
     const filename = basename(filePath);
     let track: string | undefined;
     const trackMatch = filename.match(/^SESSION-STATE-(.+)\.md$/);
     if (trackMatch) {
       track = trackMatch[1].toLowerCase();
     }
-    track = track || frontmatter.track;
+    track = frontmatter.track || track;
 
     // If sessions map exists, use it for rich data
     if (frontmatter.sessions && typeof frontmatter.sessions === "object") {
@@ -68,10 +169,10 @@ function parseStateFile(filePath: string, projectPath: string, projectName: stri
           sessions.push({
             id: String(sessionId),
             projectPath,
-            projectName,
+            projectName: frontmatter.project || projectName,
             track,
             filePath,
-            status: info.status || frontmatter.status,
+            status: info.status || frontmatter.status || "IN_PROGRESS",
             goal: info.goal,
             verify_with: info.verify_with,
             blocked_by: info.blocked_by,
@@ -80,14 +181,14 @@ function parseStateFile(filePath: string, projectPath: string, projectName: stri
         }
       }
     } else {
-      // Fallback: create single session from frontmatter
+      // Single session from frontmatter
       sessions.push({
-        id: String(frontmatter.current_session),
+        id: String(frontmatter.current_session || "1"),
         projectPath,
-        projectName,
+        projectName: frontmatter.project || projectName,
         track,
         filePath,
-        status: frontmatter.status,
+        status: frontmatter.status || "IN_PROGRESS",
         goal: undefined,
         verify_with: undefined,
         blocked_by: frontmatter.blocked_by,
@@ -101,32 +202,36 @@ function parseStateFile(filePath: string, projectPath: string, projectName: stri
   return sessions;
 }
 
-function scanDirectory(
-  dir: string,
-  depth: number,
-  projects: ClockworkProject[]
-): void {
-  if (depth > MAX_DEPTH) return;
-  if (!existsSync(dir)) return;
+/**
+ * Load projects from explicit paths only.
+ * No recursive scanning. Each path is checked directly.
+ */
+export function loadProjects(projectPaths: string[]): ClockworkProject[] {
+  const projects: ClockworkProject[] = [];
+  const seen = new Set<string>();
 
-  let entries: string[];
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return;
-  }
+  for (const p of projectPaths) {
+    const path = expandPath(p.trim());
+    if (!path || seen.has(path)) continue;
+    if (!existsSync(path)) continue;
 
-  // Check if this directory has a knowledge/ folder with SESSION-STATE*.md
-  const knowledgeDir = join(dir, "knowledge");
-  const sessionFiles = findSessionFiles(knowledgeDir);
+    try {
+      if (!statSync(path).isDirectory()) continue;
+    } catch {
+      continue;
+    }
 
-  if (sessionFiles.length > 0 && isGitRepo(dir)) {
-    const projectGit = getGitInfo(dir);
-    const projectName = basename(dir);
+    const sessionFiles = findSessionStateFiles(path);
+    if (sessionFiles.length === 0) continue;
+    if (!isGitRepo(path)) continue;
+
+    seen.add(path);
+    const projectGit = getGitInfo(path);
+    const projectName = basename(path);
 
     // Parse RULES.md if present
     let rules: RulesFrontmatter | undefined;
-    const rulesPath = join(knowledgeDir, "RULES.md");
+    const rulesPath = join(path, "knowledge", "RULES.md");
     if (existsSync(rulesPath)) {
       try {
         const rulesContent = readFileSync(rulesPath, "utf-8");
@@ -138,99 +243,52 @@ function scanDirectory(
 
     // Parse all session files
     const sessions: Session[] = [];
-    for (const sessionFile of sessionFiles) {
-      const filePath = join(knowledgeDir, sessionFile);
-      const fileSessions = parseStateFile(filePath, dir, projectName, projectGit);
+    for (const filePath of sessionFiles) {
+      const fileSessions = parseStateFile(filePath, path, projectName, projectGit);
       sessions.push(...fileSessions);
+    }
+
+    // Add verification targets from rules
+    if (rules?.verification_targets) {
+      for (const session of sessions) {
+        const verifyWith = session.verify_with;
+        const track = session.track;
+
+        // Try to find matching verification target
+        // Priority: verify_with value > track name
+        if (verifyWith && rules.verification_targets[verifyWith]) {
+          session.verification_target = rules.verification_targets[verifyWith];
+        } else if (track && rules.verification_targets[track]) {
+          session.verification_target = rules.verification_targets[track];
+        }
+      }
     }
 
     if (sessions.length > 0) {
       projects.push({
-        path: dir,
+        path,
         name: projectName,
         rules,
         sessions,
         git: projectGit,
       });
-    }
-  }
-
-  // Recurse into subdirectories
-  for (const entry of entries) {
-    if (entry.startsWith(".") || entry === "node_modules") continue;
-    const fullPath = join(dir, entry);
-    try {
-      if (statSync(fullPath).isDirectory()) {
-        scanDirectory(fullPath, depth + 1, projects);
-      }
-    } catch {
-      // Skip inaccessible directories
-    }
-  }
-}
-
-export function discoverProjects(
-  scanFolders: string[],
-  additionalProjects: string[]
-): ClockworkProject[] {
-  const projects: ClockworkProject[] = [];
-  const seenPaths = new Set<string>();
-
-  // Scan folders
-  for (const folder of scanFolders) {
-    const expanded = expandPath(folder.trim());
-    if (expanded && existsSync(expanded)) {
-      scanDirectory(expanded, 0, projects);
-    }
-  }
-
-  // Mark seen paths
-  for (const p of projects) {
-    seenPaths.add(p.path);
-  }
-
-  // Add additional projects directly
-  for (const projectPath of additionalProjects) {
-    const expanded = expandPath(projectPath.trim());
-    if (!expanded || seenPaths.has(expanded)) continue;
-    if (!existsSync(expanded) || !isGitRepo(expanded)) continue;
-
-    const knowledgeDir = join(expanded, "knowledge");
-    const sessionFiles = findSessionFiles(knowledgeDir);
-    if (sessionFiles.length === 0) continue;
-
-    const projectGit = getGitInfo(expanded);
-    const projectName = basename(expanded);
-
-    let rules: RulesFrontmatter | undefined;
-    const rulesPath = join(knowledgeDir, "RULES.md");
-    if (existsSync(rulesPath)) {
-      try {
-        const rulesContent = readFileSync(rulesPath, "utf-8");
-        rules = parseFrontmatter<RulesFrontmatter>(rulesContent) ?? undefined;
-      } catch {
-        // Ignore
-      }
-    }
-
-    const sessions: Session[] = [];
-    for (const sessionFile of sessionFiles) {
-      const filePath = join(knowledgeDir, sessionFile);
-      const fileSessions = parseStateFile(filePath, expanded, projectName, projectGit);
-      sessions.push(...fileSessions);
-    }
-
-    if (sessions.length > 0) {
-      projects.push({
-        path: expanded,
-        name: projectName,
-        rules,
-        sessions,
-        git: projectGit,
-      });
-      seenPaths.add(expanded);
     }
   }
 
   return projects;
+}
+
+/**
+ * Check if a path is a valid clockwork project.
+ */
+export function isClockworkProject(path: string): boolean {
+  const expanded = expandPath(path);
+  if (!existsSync(expanded)) return false;
+  try {
+    if (!statSync(expanded).isDirectory()) return false;
+  } catch {
+    return false;
+  }
+  const sessionFiles = findSessionStateFiles(expanded);
+  return sessionFiles.length > 0;
 }

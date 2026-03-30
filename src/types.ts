@@ -38,6 +38,12 @@ export interface GitInfo {
   lastCommitDate?: string;
 }
 
+export interface VerificationTarget {
+  app: string;
+  url?: string;
+  path?: string;
+}
+
 export interface Session {
   id: string;
   projectPath: string;
@@ -47,6 +53,7 @@ export interface Session {
   status: SessionStatus;
   goal?: string;
   verify_with?: string | null;
+  verification_target?: VerificationTarget;
   blocked_by?: string;
   git: GitInfo;
 }

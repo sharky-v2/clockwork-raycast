@@ -6,287 +6,206 @@ import {
   Icon,
   List,
   LocalStorage,
-  openExtensionPreferences,
   showToast,
   Toast,
 } from "@raycast/api";
 import { execSync } from "child_process";
+import { basename } from "path";
 import { useEffect, useState } from "react";
-import { discoverProjects } from "./scanner";
+import { expandPath, isClockworkProject, loadProjects } from "./scanner";
 import { Session, SessionStatus } from "./types";
 
 interface Preferences {
-  scanFolders: string;
-  additionalProjects: string;
   defaultEditor: string;
 }
 
-const STATUS_ORDER: Record<SessionStatus, number> = {
-  IN_PROGRESS: 0,
-  READY: 1,
-  TO_VERIFY: 2,
-  BLOCKED: 3,
-  COMPLETE: 4,
+const STORAGE_KEY = "clockwork_projects";
+
+const STATUS_CONFIG: Record<SessionStatus, { color: Color; icon: Icon; label: string }> = {
+  IN_PROGRESS: { color: Color.Blue, icon: Icon.CircleProgress50, label: "In Progress" },
+  READY: { color: Color.Green, icon: Icon.Circle, label: "Ready" },
+  TO_VERIFY: { color: Color.Orange, icon: Icon.Eye, label: "To Verify" },
+  BLOCKED: { color: Color.Red, icon: Icon.XMarkCircle, label: "Blocked" },
+  COMPLETE: { color: Color.SecondaryText, icon: Icon.CheckCircle, label: "Complete" },
 };
 
-const STATUS_COLORS: Record<SessionStatus, Color> = {
-  READY: Color.Green,
-  IN_PROGRESS: Color.Blue,
-  TO_VERIFY: Color.Orange,
-  BLOCKED: Color.Red,
-  COMPLETE: Color.SecondaryText,
-};
-
-const STATUS_ICONS: Record<SessionStatus, Icon> = {
-  READY: Icon.Circle,
-  IN_PROGRESS: Icon.CircleProgress50,
-  TO_VERIFY: Icon.Eye,
-  BLOCKED: Icon.XMarkCircle,
-  COMPLETE: Icon.CheckCircle,
-};
-
-function getVerifyAction(session: Session): JSX.Element | null {
-  const verify = session.verify_with;
-  if (!verify) return null;
-
-  const runCommand = (cmd: string, title: string) => {
-    showToast({ style: Toast.Style.Animated, title: `Running ${title}...` });
-    try {
-      execSync(cmd, { cwd: session.projectPath, stdio: "pipe" });
-      showToast({ style: Toast.Style.Success, title: `${title} passed` });
-    } catch (error) {
-      showToast({
-        style: Toast.Style.Failure,
-        title: `${title} failed`,
-        message: String(error),
-      });
-    }
-  };
-
-  switch (verify) {
-    case "tests":
-      return (
-        <Action
-          title="Run Tests"
-          icon={Icon.Play}
-          shortcut={{ modifiers: ["cmd"], key: "t" }}
-          onAction={() => runCommand("npm test", "tests")}
-        />
-      );
-    case "build":
-      return (
-        <Action
-          title="Run Build"
-          icon={Icon.Hammer}
-          shortcut={{ modifiers: ["cmd"], key: "b" }}
-          onAction={() => runCommand("npm run build", "build")}
-        />
-      );
-    case "browser":
-      return (
-        <Action.OpenInBrowser
-          title="Open in Browser"
-          url="http://localhost:3000"
-          shortcut={{ modifiers: ["cmd"], key: "o" }}
-        />
-      );
-    case "xcode":
-      return (
-        <Action
-          title="Open Xcode"
-          icon={Icon.Hammer}
-          shortcut={{ modifiers: ["cmd"], key: "x" }}
-          onAction={() => {
-            execSync(`open -a Xcode "${session.projectPath}"`, { stdio: "pipe" });
-          }}
-        />
-      );
-    case "android_studio":
-      return (
-        <Action
-          title="Open Android Studio"
-          icon={Icon.Mobile}
-          shortcut={{ modifiers: ["cmd"], key: "a" }}
-          onAction={() => {
-            execSync(`open -a "Android Studio" "${session.projectPath}"`, { stdio: "pipe" });
-          }}
-        />
-      );
-    default:
-      return null;
-  }
+function pickFolder(): string | null {
+  try {
+    return execSync(`osascript -e 'POSIX path of (choose folder with prompt "Select clockwork project")'`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim().replace(/\/$/, "") || null;
+  } catch { return null; }
 }
 
-function SessionItem({ session, editor }: { session: Session; editor: string }) {
-  const verifyAction = getVerifyAction(session);
-  const gitInfo = session.git;
+function getRunningClaudeSessions(): Record<string, number> {
+  const sessions: Record<string, number> = {};
+  try {
+    const pids = execSync(`ps -eo pid,comm | grep -E "claude$" | awk '{print $1}'`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    if (!pids) return sessions;
+    for (const pid of pids.split("\n")) {
+      if (!pid.trim()) continue;
+      try {
+        const cwd = execSync(`lsof -a -p ${pid.trim()} -d cwd -F n 2>/dev/null | grep "^n" | cut -c2-`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+        if (cwd) sessions[cwd] = (sessions[cwd] || 0) + 1;
+      } catch {}
+    }
+  } catch {}
+  return sessions;
+}
 
-  const accessories: List.Item.Accessory[] = [];
+function getPrimaryAction(s: Session, editor: string) {
+  const v = s.verify_with, t = s.verification_target;
+  if (v === "browser" || t?.app === "browser") return { title: "Open Browser", icon: Icon.Globe, fn: () => execSync(`open "${t?.url || "http://localhost:3000"}"`, { stdio: "pipe" }) };
+  if (v === "xcode" || t?.app === "xcode") return { title: "Open Xcode", icon: Icon.Hammer, fn: () => execSync(`open -a Xcode "${t?.path ? s.projectPath + "/" + t.path : s.projectPath}"`, { stdio: "pipe" }) };
+  if (v === "android_studio" || t?.app === "android_studio") return { title: "Open Android Studio", icon: Icon.Mobile, fn: () => execSync(`open -a "Android Studio" "${t?.path ? s.projectPath + "/" + t.path : s.projectPath}"`, { stdio: "pipe" }) };
+  return { title: `Open ${editor === "code" ? "VS Code" : editor}`, icon: Icon.Code, fn: () => execSync(`${editor} "${s.projectPath}"`, { stdio: "pipe" }) };
+}
 
-  if (session.goal) {
-    accessories.push({ text: session.goal });
-  }
-
-  accessories.push({ text: gitInfo.branch, icon: Icon.CodeBlock });
-
-  if (gitInfo.uncommittedChanges > 0) {
-    accessories.push({
-      tag: { value: "dirty", color: Color.Orange },
-    });
-  }
-
-  const title = session.track
-    ? `${session.projectName} / ${session.track}-${session.id}`
-    : `${session.projectName} / Session ${session.id}`;
-
-  return (
-    <List.Item
-      title={title}
-      subtitle={session.goal}
-      icon={{
-        source: STATUS_ICONS[session.status] || Icon.Circle,
-        tintColor: STATUS_COLORS[session.status],
-      }}
-      accessories={accessories}
-      keywords={[
-        session.projectName,
-        session.status,
-        session.track || "",
-        session.goal || "",
-      ]}
-      actions={
-        <ActionPanel>
-          <ActionPanel.Section title="Open">
-            <Action
-              title={`Open in ${editor === "code" ? "VS Code" : editor}`}
-              icon={Icon.Code}
-              onAction={() => {
-                execSync(`${editor} "${session.projectPath}"`, { stdio: "pipe" });
-              }}
-            />
-            <Action.OpenWith
-              path={session.filePath}
-              title="Open Session File"
-              shortcut={{ modifiers: ["cmd"], key: "o" }}
-            />
-            <Action
-              title="Open in Terminal"
-              icon={Icon.Terminal}
-              shortcut={{ modifiers: ["cmd"], key: "t" }}
-              onAction={() => {
-                execSync(`open -a Terminal "${session.projectPath}"`, { stdio: "pipe" });
-              }}
-            />
-            <Action.ShowInFinder
-              path={session.projectPath}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "f" }}
-            />
-          </ActionPanel.Section>
-
-          {verifyAction && (
-            <ActionPanel.Section title="Verify">{verifyAction}</ActionPanel.Section>
-          )}
-
-          <ActionPanel.Section title="Copy">
-            <Action.CopyToClipboard
-              title="Copy Project Path"
-              content={session.projectPath}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
-            />
-          </ActionPanel.Section>
-        </ActionPanel>
-      }
-    />
-  );
+function DetailMD(s: Session, live: number) {
+  const c = STATUS_CONFIG[s.status];
+  let md = `**${s.projectName}** / ${s.id}${s.track ? ` · ${s.track}` : ""}\n\n`;
+  const tags = [];
+  tags.push(`\`${c.label}\``);
+  if (live > 0) tags.push(`\`${live} live\``);
+  if (s.git.uncommittedChanges > 0) tags.push(`\`${s.git.uncommittedChanges} changes\``);
+  md += tags.join("  ") + "\n";
+  if (s.goal) md += `\n---\n\n${s.goal}\n`;
+  md += `\n---\n\n\`${s.git.branch}\``;
+  if (s.verify_with) md += ` · ${s.verify_with}`;
+  if (s.verification_target?.url) md += ` · ${s.verification_target.url}`;
+  if (s.blocked_by) md += `\n\nBlocked by ${s.blocked_by}`;
+  return md;
 }
 
 export default function Command() {
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [liveSessions, setLiveSessions] = useState<Record<string, number>>({});
+  const [storedPaths, setStoredPaths] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
   const prefs = getPreferenceValues<Preferences>();
   const editor = prefs.defaultEditor || "code";
 
   useEffect(() => {
-    async function load() {
-      const scanFolders = prefs.scanFolders
-        ? prefs.scanFolders.split(",").map((s) => s.trim()).filter(Boolean)
-        : [];
-
-      const prefProjects = prefs.additionalProjects
-        ? prefs.additionalProjects.split(",").map((s) => s.trim()).filter(Boolean)
-        : [];
-      const storedProjects = await LocalStorage.getItem<string>("additionalProjects");
-      const localProjects = storedProjects
-        ? storedProjects.split(",").map((s) => s.trim()).filter(Boolean)
-        : [];
-
-      const additionalProjects = [...new Set([...prefProjects, ...localProjects])];
-
-      const projects = discoverProjects(scanFolders, additionalProjects);
-      const allSessions = projects.flatMap((p) => p.sessions);
-
-      // Sort by status priority
-      allSessions.sort((a, b) => {
-        const aOrder = STATUS_ORDER[a.status] ?? 99;
-        const bOrder = STATUS_ORDER[b.status] ?? 99;
-        return aOrder - bOrder;
-      });
-
-      setSessions(allSessions);
+    (async () => {
+      setIsLoading(true);
+      const stored = await LocalStorage.getItem<string>(STORAGE_KEY);
+      const paths: string[] = stored ? JSON.parse(stored) : [];
+      setStoredPaths(paths);
+      const projects = loadProjects(paths);
+      setSessions(projects.flatMap((p) => p.sessions));
+      setLiveSessions(getRunningClaudeSessions());
       setIsLoading(false);
-    }
-    load();
-  }, []);
+    })();
+  }, [refreshKey]);
 
-  // Group by status
-  const grouped = sessions.reduce(
-    (acc, session) => {
-      const status = session.status;
-      if (!acc[status]) acc[status] = [];
-      acc[status].push(session);
-      return acc;
-    },
-    {} as Record<string, Session[]>
-  );
+  async function handleAdd(path?: string) {
+    const p = path || pickFolder();
+    if (!p) return;
+    const exp = expandPath(p);
+    if (!path && !isClockworkProject(exp)) { await showToast({ style: Toast.Style.Failure, title: "Not a Clockwork Project" }); return; }
+    const stored = await LocalStorage.getItem<string>(STORAGE_KEY);
+    const paths: string[] = stored ? JSON.parse(stored) : [];
+    if (paths.includes(exp)) { await showToast({ style: Toast.Style.Failure, title: "Already Added" }); return; }
+    paths.push(exp);
+    await LocalStorage.setItem(STORAGE_KEY, JSON.stringify(paths));
+    await showToast({ style: Toast.Style.Success, title: "Added" });
+    setRefreshKey((k) => k + 1);
+  }
+
+  async function handleRemove(path: string) {
+    const stored = await LocalStorage.getItem<string>(STORAGE_KEY);
+    const paths: string[] = stored ? JSON.parse(stored) : [];
+    await LocalStorage.setItem(STORAGE_KEY, JSON.stringify(paths.filter((p) => p !== path)));
+    await showToast({ style: Toast.Style.Success, title: "Removed" });
+    setRefreshKey((k) => k + 1);
+  }
+
+  // Find live paths not yet in extension
+  const livePathsNotAdded = Object.keys(liveSessions).filter((p) => !storedPaths.includes(p));
+
+  // Sessions with live processes
+  const liveSessionsInExt = sessions.filter((s) => liveSessions[s.projectPath]);
+  const otherSessions = sessions.filter((s) => !liveSessions[s.projectPath]);
+
+  const grouped: Record<string, Session[]> = {};
+  for (const s of otherSessions) (grouped[s.status] ||= []).push(s);
 
   const statusOrder: SessionStatus[] = ["IN_PROGRESS", "READY", "TO_VERIFY", "BLOCKED", "COMPLETE"];
 
+  const renderSession = (s: Session) => {
+    const live = liveSessions[s.projectPath] || 0;
+    const cfg = STATUS_CONFIG[s.status];
+    const primary = getPrimaryAction(s, editor);
+    const acc: List.Item.Accessory[] = [];
+    if (live > 0) acc.push({ tag: { value: `${live} live`, color: Color.Green } });
+    if (s.git.uncommittedChanges > 0) acc.push({ tag: { value: `${s.git.uncommittedChanges}`, color: Color.Orange } });
+
+    return (
+      <List.Item
+        key={`${s.projectPath}-${s.id}`}
+        title={s.track ? `${s.projectName} / ${s.track}-${s.id}` : `${s.projectName} / ${s.id}`}
+        icon={{ source: cfg.icon, tintColor: cfg.color }}
+        accessories={acc}
+        detail={<List.Item.Detail markdown={DetailMD(s, live)} />}
+        actions={
+          <ActionPanel>
+            <Action title={primary.title} icon={primary.icon} onAction={primary.fn} />
+            <Action title="Open Editor" icon={Icon.Code} shortcut={{ modifiers: ["cmd"], key: "e" }} onAction={() => execSync(`${editor} "${s.projectPath}"`, { stdio: "pipe" })} />
+            <Action.OpenWith path={s.filePath} title="Session File" shortcut={{ modifiers: ["cmd"], key: "o" }} />
+            <Action title="Terminal" icon={Icon.Terminal} shortcut={{ modifiers: ["cmd"], key: "t" }} onAction={() => execSync(`open -a Terminal "${s.projectPath}"`, { stdio: "pipe" })} />
+            <Action.ShowInFinder path={s.projectPath} shortcut={{ modifiers: ["cmd", "shift"], key: "f" }} />
+            <Action title="Remove" icon={Icon.Trash} style={Action.Style.Destructive} shortcut={{ modifiers: ["ctrl"], key: "x" }} onAction={() => handleRemove(s.projectPath)} />
+            <Action title="Refresh" icon={Icon.ArrowClockwise} shortcut={{ modifiers: ["cmd"], key: "r" }} onAction={() => setRefreshKey((k) => k + 1)} />
+          </ActionPanel>
+        }
+      />
+    );
+  };
+
   return (
-    <List isLoading={isLoading} searchBarPlaceholder="Search sessions...">
+    <List isLoading={isLoading} isShowingDetail searchBarPlaceholder="Search..." actions={<ActionPanel><Action title="Add Project" icon={Icon.Plus} onAction={() => handleAdd()} /><Action title="Refresh" icon={Icon.ArrowClockwise} shortcut={{ modifiers: ["cmd"], key: "r" }} onAction={() => setRefreshKey((k) => k + 1)} /></ActionPanel>}>
+
+      {/* Discovered live sessions not in extension */}
+      {livePathsNotAdded.length > 0 && (
+        <List.Section title="Live (not added)" subtitle={`${livePathsNotAdded.length}`}>
+          {livePathsNotAdded.map((p) => (
+            <List.Item
+              key={p}
+              title={basename(p)}
+              icon={{ source: Icon.CircleFilled, tintColor: Color.Green }}
+              accessories={[{ tag: { value: `${liveSessions[p]} live`, color: Color.Green } }]}
+              detail={<List.Item.Detail markdown={`**${basename(p)}**\n\n\`${liveSessions[p]} active session${liveSessions[p] > 1 ? "s" : ""}\`\n\n---\n\n${p.replace(/^\/Users\/[^/]+/, "~")}\n\nPress Enter to add this project`} />}
+              actions={
+                <ActionPanel>
+                  <Action title="Add Project" icon={Icon.Plus} onAction={() => handleAdd(p)} />
+                  <Action title="Open Editor" icon={Icon.Code} onAction={() => execSync(`${editor} "${p}"`, { stdio: "pipe" })} />
+                  <Action.ShowInFinder path={p} />
+                </ActionPanel>
+              }
+            />
+          ))}
+        </List.Section>
+      )}
+
+      {/* Live sessions in extension */}
+      {liveSessionsInExt.length > 0 && (
+        <List.Section title="Live" subtitle={`${liveSessionsInExt.length}`}>
+          {liveSessionsInExt.map(renderSession)}
+        </List.Section>
+      )}
+
+      {/* Other sessions by status */}
       {statusOrder.map((status) => {
-        const statusSessions = grouped[status];
-        if (!statusSessions || statusSessions.length === 0) return null;
+        const items = grouped[status];
+        if (!items?.length) return null;
         return (
-          <List.Section
-            key={status}
-            title={status.replace(/_/g, " ")}
-            subtitle={`${statusSessions.length}`}
-          >
-            {statusSessions.map((session) => (
-              <SessionItem
-                key={`${session.projectPath}-${session.id}`}
-                session={session}
-                editor={editor}
-              />
-            ))}
+          <List.Section key={status} title={STATUS_CONFIG[status].label} subtitle={`${items.length}`}>
+            {items.map(renderSession)}
           </List.Section>
         );
       })}
-      {sessions.length === 0 && !isLoading && (
-        <List.EmptyView
-          title="No Sessions Found"
-          description="Add scan folders or projects to discover clockwork sessions"
-          icon={Icon.Folder}
-          actions={
-            <ActionPanel>
-              <Action
-                title="Configure Clockwork"
-                icon={Icon.Gear}
-                onAction={openExtensionPreferences}
-              />
-            </ActionPanel>
-          }
-        />
+
+      {sessions.length === 0 && livePathsNotAdded.length === 0 && !isLoading && (
+        <List.EmptyView title="No Projects" description="Enter to add" icon={Icon.Plus} actions={<ActionPanel><Action title="Add Project" icon={Icon.Plus} onAction={() => handleAdd()} /></ActionPanel>} />
       )}
     </List>
   );
