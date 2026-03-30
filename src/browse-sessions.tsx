@@ -38,7 +38,8 @@ function pickFolder(): string | null {
 function getRunningClaudeSessions(): Record<string, number> {
   const sessions: Record<string, number> = {};
   try {
-    const pids = execSync(`ps -eo pid,comm | grep -E "claude$" | awk '{print $1}'`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    // Find all claude processes - both terminal and VS Code extension
+    const pids = execSync(`pgrep -f "/claude|^claude"`, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     if (!pids) return sessions;
     for (const pid of pids.split("\n")) {
       if (!pid.trim()) continue;

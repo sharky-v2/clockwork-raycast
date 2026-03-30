@@ -1,98 +1,80 @@
 ---
 project: clockwork-raycast
-current_session: 1
-status: TO_VERIFY
+current_session: 2
+status: READY
 last_updated: 2026-03-31
 sessions:
   1:
     status: TO_VERIFY
     goal: Build Raycast extension for clockwork project management
     verify_with: build
+  2:
+    status: READY
+    goal: Fix live detection, polish UI, consider Claude Code hooks
+    verify_with: build
 ---
 
 # State: CLOCKWORK-RAYCAST
 
-> **Current Session:** 1 | **Status:** TO_VERIFY
+> **Current Session:** 2 | **Status:** READY
 > **Last Updated:** 2026-03-31
-
----
-
-## Session 1 Summary
-
-**Built complete Raycast extension for clockwork project management.**
-
-### Completed
-
-1. **Project discovery** - Folder picker, LocalStorage persistence
-2. **SESSION-STATE parsing** - YAML frontmatter + fallback markdown parsing
-3. **Live session detection** - `ps`/`lsof` to find running claude processes
-4. **Contextual actions** - Primary action based on verify_with (browser/xcode/android_studio)
-5. **Detail panel** - Lean layout with semantic badges
-6. **Two sections**: "Live (not added)" for discovered sessions, "Live" for tracked ones
-
-### Key Decisions
-
-| ID | Decision | Rationale |
-|----|----------|-----------|
-| D1-D8 | See previous entries | - |
-| D9 | Lenient parsing | Extract from markdown when no frontmatter |
-| D10 | No auto-scanning | Explicit add only, no perf issues |
-| D11 | Live detection via ps/lsof | Find claude processes by cwd |
-| D12 | Show untracked live sessions | "Live (not added)" section for discoverability |
-| D13 | Contextual primary action | verify_with determines Enter action |
-
-### Verification Checklist
-
-- [ ] "Live (not added)" shows running claude sessions not in extension
-- [ ] "Live" shows tracked projects with active sessions
-- [ ] Green `X live` badge on live items
-- [ ] Orange `X` badge for uncommitted changes
-- [ ] Enter on browser session opens browser
-- [ ] Enter on xcode session opens Xcode
-- [ ] Detail panel shows goal, branch, status without overflow
-
-### Files
-
-| File | Purpose |
-|------|---------|
-| `src/browse-sessions.tsx` | Main list with live detection |
-| `src/manage-projects.tsx` | Project management |
-| `src/scanner.ts` | Lenient parsing, verification targets |
-| `src/types.ts` | TypeScript interfaces |
-| `src/git.ts` | Git status |
 
 ---
 
 ## Handoff: 1 → 2
 
-### What's Working
-- Extension loads projects, shows sessions grouped by status
-- Live claude sessions detected and shown in dedicated section
-- Contextual actions based on verify_with
+### What Session 1 Built
+- Raycast extension with project discovery, SESSION-STATE parsing
+- Live claude session detection via `pgrep`/`lsof`
+- Contextual primary actions (browser/xcode/android_studio)
+- Semantic badges, detail panel layout
 
-### Known Limitations
-- Can't switch to specific VS Code terminal (no API)
-- Live detection finds process but not session context (would need Claude Code hooks)
+### What's NOT Working
+- **Live detection inconsistent** - User still not seeing all sessions in Raycast
+- Detection works in terminal but may fail in Raycast sandbox
+- Need to verify `pgrep -f "/claude|^claude"` works in Raycast env
 
-### Future Work (Session 2+)
-1. Claude Code hooks for proper session registration
-2. Polish detail panel styling
-3. Keyboard navigation optimization
-4. Auto-refresh on interval
+### What Needs Session 2
+1. Debug why live detection fails in Raycast (permissions? sandbox?)
+2. Consider Claude Code hooks for proper registration (see PROPOSAL-LIVE-SESSIONS.md)
+3. Polish detail panel - user wanted leaner, better formatted
+4. Test all verification flows
 
-### To Test
-Run `npm run dev`, add your projects, verify live sessions appear.
+### Files to Read
+- `src/browse-sessions.tsx` - Main component, live detection at line ~30
+- `knowledge/PROPOSAL-LIVE-SESSIONS.md` - Hook-based solution design
+
+### Key Decisions Made
+| ID | Decision |
+|----|----------|
+| D9 | Lenient parsing (markdown fallback) |
+| D10 | No auto-scan, explicit add only |
+| D11 | Live detection via pgrep/lsof |
+| D12 | "Live (not added)" section for discovery |
+| D13 | Contextual primary action |
+
+---
+
+## Session 1 Summary
+
+**Date:** 2026-03-30 to 2026-03-31
+**Status:** TO_VERIFY
+
+Built complete extension but live session detection needs debugging in Raycast environment.
 
 ---
 
 ## Learnings
 
-| ID | Learning | Session |
-|----|----------|---------|
-| L1-L5 | See previous | 1 |
-| L6 | Show discovered sessions even if not added | Helps user see what's running | 1 |
-| L7 | ps -eo pid,comm more reliable than ps aux grep | Cleaner process matching | 1 |
+| ID | Learning | Root Cause |
+|----|----------|------------|
+| L1 | Must follow clockwork even for clockwork tooling | Started without protocol |
+| L2 | Auto-scan is perf disaster | Would freeze Raycast |
+| L3 | Tooling must match methodology reality | Built strict parser, real files are flexible |
+| L4 | ps/pgrep patterns differ | Full path vs basename |
+| L5 | Raycast may sandbox shell commands | Need to verify |
+| L6 | EXIT BEFORE AUTOCOMPACT | Almost violated this |
 
 ---
 
-*Session 1 complete. Awaiting verification.*
+*Session 1 ended due to token budget. Clean handoff.*
