@@ -2,16 +2,42 @@
   "name": "clockwork",
   "title": "Clockwork",
   "description": "Manage clockwork project sessions across your codebase",
-  "icon": "command-icon.png",
+  "icon": "command-icon.svg",
   "author": "space",
   "license": "MIT",
   "version": "1.0.0",
   "commands": [
     {
-      "name": "index",
+      "name": "browse-sessions",
       "title": "Browse Sessions",
-      "description": "View and manage clockwork sessions across all projects",
-      "mode": "view"
+      "subtitle": "Clockwork",
+      "description": "View all clockwork sessions grouped by status",
+      "mode": "view",
+      "keywords": ["clockwork", "sessions", "projects", "status"]
+    },
+    {
+      "name": "quick-open",
+      "title": "Quick Open Project",
+      "subtitle": "Clockwork",
+      "description": "Quickly open a clockwork project in VS Code",
+      "mode": "view",
+      "keywords": ["clockwork", "open", "vscode", "code"]
+    },
+    {
+      "name": "add-project",
+      "title": "Add Project",
+      "subtitle": "Clockwork",
+      "description": "Add a project path to clockwork tracking",
+      "mode": "view",
+      "keywords": ["clockwork", "add", "new", "project", "folder"]
+    },
+    {
+      "name": "configure",
+      "title": "Configure Clockwork",
+      "subtitle": "Clockwork",
+      "description": "Set scan folders and preferences",
+      "mode": "view",
+      "keywords": ["clockwork", "settings", "configure", "folders", "preferences"]
     }
   ],
   "preferences": [
@@ -20,16 +46,30 @@
       "type": "textfield",
       "required": false,
       "title": "Scan Folders",
-      "description": "Comma-separated list of folders to scan for clockwork projects",
-      "default": "~/Documents,~/Projects,~/Code"
+      "description": "Comma-separated list of parent folders to scan recursively",
+      "placeholder": "~/Documents/Projects,~/Code"
     },
     {
       "name": "additionalProjects",
       "type": "textfield",
       "required": false,
       "title": "Additional Projects",
-      "description": "Comma-separated list of additional project paths to include",
-      "default": ""
+      "description": "Comma-separated list of specific project paths",
+      "placeholder": "~/my-project,~/another-project"
+    },
+    {
+      "name": "defaultEditor",
+      "type": "dropdown",
+      "required": false,
+      "title": "Default Editor",
+      "description": "Editor to open projects with",
+      "default": "code",
+      "data": [
+        { "title": "VS Code", "value": "code" },
+        { "title": "Cursor", "value": "cursor" },
+        { "title": "Zed", "value": "zed" },
+        { "title": "Sublime Text", "value": "subl" }
+      ]
     }
   ],
   "dependencies": {

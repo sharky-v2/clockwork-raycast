@@ -7,10 +7,11 @@ import {
   ClockworkProject,
   RulesFrontmatter,
   Session,
-  SessionFrontmatter,
+  SessionStatus,
+  StateFrontmatter,
 } from "./types";
 
-const MAX_DEPTH = 4;
+const MAX_DEPTH = 5;
 
 function expandPath(p: string): string {
   if (p.startsWith("~")) {
@@ -20,7 +21,7 @@ function expandPath(p: string): string {
 }
 
 function parseFrontmatter<T>(content: string): T | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/);
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return null;
   try {
     return yaml.load(match[1]) as T;
@@ -38,6 +39,66 @@ function findSessionFiles(knowledgeDir: string): string[] {
   } catch {
     return [];
   }
+}
+
+function parseStateFile(filePath: string, projectPath: string, projectName: string, projectGit: ReturnType<typeof getGitInfo>): Session[] {
+  const sessions: Session[] = [];
+
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const frontmatter = parseFrontmatter<StateFrontmatter>(content);
+
+    if (!frontmatter || !frontmatter.project) {
+      return sessions;
+    }
+
+    // Extract track from filename if present (SESSION-STATE-WEB.md -> WEB)
+    const filename = basename(filePath);
+    let track: string | undefined;
+    const trackMatch = filename.match(/^SESSION-STATE-(.+)\.md$/);
+    if (trackMatch) {
+      track = trackMatch[1].toLowerCase();
+    }
+    track = track || frontmatter.track;
+
+    // If sessions map exists, use it for rich data
+    if (frontmatter.sessions && typeof frontmatter.sessions === "object") {
+      for (const [sessionId, info] of Object.entries(frontmatter.sessions)) {
+        if (info && typeof info === "object") {
+          sessions.push({
+            id: String(sessionId),
+            projectPath,
+            projectName,
+            track,
+            filePath,
+            status: info.status || frontmatter.status,
+            goal: info.goal,
+            verify_with: info.verify_with,
+            blocked_by: info.blocked_by,
+            git: projectGit,
+          });
+        }
+      }
+    } else {
+      // Fallback: create single session from frontmatter
+      sessions.push({
+        id: String(frontmatter.current_session),
+        projectPath,
+        projectName,
+        track,
+        filePath,
+        status: frontmatter.status,
+        goal: undefined,
+        verify_with: undefined,
+        blocked_by: frontmatter.blocked_by,
+        git: projectGit,
+      });
+    }
+  } catch {
+    // Ignore unreadable files
+  }
+
+  return sessions;
 }
 
 function scanDirectory(
@@ -79,22 +140,8 @@ function scanDirectory(
     const sessions: Session[] = [];
     for (const sessionFile of sessionFiles) {
       const filePath = join(knowledgeDir, sessionFile);
-      try {
-        const content = readFileSync(filePath, "utf-8");
-        const frontmatter = parseFrontmatter<SessionFrontmatter>(content);
-        if (frontmatter && frontmatter.session_id && frontmatter.status) {
-          sessions.push({
-            id: frontmatter.session_id,
-            projectPath: dir,
-            projectName,
-            filePath,
-            frontmatter,
-            git: projectGit,
-          });
-        }
-      } catch {
-        // Ignore unreadable files
-      }
+      const fileSessions = parseStateFile(filePath, dir, projectName, projectGit);
+      sessions.push(...fileSessions);
     }
 
     if (sessions.length > 0) {
@@ -137,6 +184,11 @@ export function discoverProjects(
     }
   }
 
+  // Mark seen paths
+  for (const p of projects) {
+    seenPaths.add(p.path);
+  }
+
   // Add additional projects directly
   for (const projectPath of additionalProjects) {
     const expanded = expandPath(projectPath.trim());
@@ -164,22 +216,8 @@ export function discoverProjects(
     const sessions: Session[] = [];
     for (const sessionFile of sessionFiles) {
       const filePath = join(knowledgeDir, sessionFile);
-      try {
-        const content = readFileSync(filePath, "utf-8");
-        const frontmatter = parseFrontmatter<SessionFrontmatter>(content);
-        if (frontmatter && frontmatter.session_id && frontmatter.status) {
-          sessions.push({
-            id: frontmatter.session_id,
-            projectPath: expanded,
-            projectName,
-            filePath,
-            frontmatter,
-            git: projectGit,
-          });
-        }
-      } catch {
-        // Ignore
-      }
+      const fileSessions = parseStateFile(filePath, expanded, projectName, projectGit);
+      sessions.push(...fileSessions);
     }
 
     if (sessions.length > 0) {
@@ -194,15 +232,5 @@ export function discoverProjects(
     }
   }
 
-  // Dedupe
-  const uniqueProjects: ClockworkProject[] = [];
-  const seen = new Set<string>();
-  for (const project of projects) {
-    if (!seen.has(project.path)) {
-      seen.add(project.path);
-      uniqueProjects.push(project);
-    }
-  }
-
-  return uniqueProjects;
+  return projects;
 }

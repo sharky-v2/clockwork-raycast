@@ -1,16 +1,33 @@
-export interface SessionFrontmatter {
-  session_id: string;
-  status: "queued" | "in_progress" | "blocked" | "completed" | "handed_off";
-  owner?: string;
-  started?: string;
-  verify_with?: "tests" | "build" | "lint" | "manual" | string;
-  depends_on?: string[];
-  [key: string]: unknown;
+// Clockwork status values (uppercase)
+export type SessionStatus = "READY" | "IN_PROGRESS" | "TO_VERIFY" | "BLOCKED" | "COMPLETE";
+
+export interface SessionInfo {
+  status: SessionStatus;
+  goal?: string;
+  verify_with?: string | null;
+  blocked_by?: string;
+}
+
+export interface StateFrontmatter {
+  project: string;
+  track?: string;
+  type?: "meta";
+  tracks?: string[];
+  current_session: string | number;
+  status: SessionStatus;
+  blocked_by?: string;
+  last_updated?: string;
+  sessions?: Record<string | number, SessionInfo>;
 }
 
 export interface RulesFrontmatter {
   project?: string;
-  version?: string;
+  vscode_path?: string;
+  verification_targets?: Record<string, {
+    app: string;
+    url?: string;
+    path?: string;
+  }>;
   [key: string]: unknown;
 }
 
@@ -25,8 +42,12 @@ export interface Session {
   id: string;
   projectPath: string;
   projectName: string;
+  track?: string;
   filePath: string;
-  frontmatter: SessionFrontmatter;
+  status: SessionStatus;
+  goal?: string;
+  verify_with?: string | null;
+  blocked_by?: string;
   git: GitInfo;
 }
 

@@ -1,0 +1,3 @@
+[submodule "clockwork"]
+	path = clockwork
+	url = https://github.com/sharky-v2/clockwork.git
