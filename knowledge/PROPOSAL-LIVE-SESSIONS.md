@@ -1,4 +1,4 @@
-# Proposal: Live Session Registration
+# ~~Proposal~~ IMPLEMENTED: Live Session Registration
 
 ## Problem
 
@@ -59,22 +59,26 @@ In `~/.claude/settings.json`:
 | Raycast extension update | 1 hour |
 | Testing | 1 hour |
 
-## Decision Needed
+## Implementation (Session 2)
 
-Does Claude Code support hooks for session start/end?
-- If yes: Implement this
-- If no: Propose feature to Claude Code team
+**Claude Code supports hooks.** Implemented 2026-03-31.
 
-## Alternative: Wrapper Script
+### Files Created
+- `~/.clockwork/hooks/register-session.sh` - Reads JSON from stdin, writes to registry
+- `~/.clockwork/hooks/deregister-session.sh` - Removes session from registry
+- `~/.clockwork/live/*.json` - Registry files
 
-If hooks not available, wrap claude invocation:
-
-```bash
-#!/bin/bash
-# ~/.local/bin/cw (clockwork-aware claude)
-register_session "$PWD"
-trap 'deregister_session "$PWD"' EXIT
-claude "$@"
+### Settings Added
+```json
+// ~/.claude/settings.json
+{
+  "hooks": {
+    "SessionStart": [{ "matcher": "", "hooks": [{ "type": "command", "command": "~/.clockwork/hooks/register-session.sh" }] }],
+    "SessionEnd": [{ "matcher": "", "hooks": [{ "type": "command", "command": "~/.clockwork/hooks/deregister-session.sh" }] }]
+  }
+}
 ```
 
-User invokes `cw` instead of `claude`. Less elegant but works.
+### Raycast Extension
+- Updated `src/browse-sessions.tsx` to read from `~/.clockwork/live/`
+- Falls back to pgrep/lsof if registry is empty

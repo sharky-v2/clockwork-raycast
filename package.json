@@ -38,6 +38,15 @@
         { "title": "Zed", "value": "zed" },
         { "title": "Sublime Text", "value": "subl" }
       ]
+    },
+    {
+      "name": "showComplete",
+      "type": "checkbox",
+      "required": false,
+      "title": "Show Completed",
+      "description": "Show completed sessions in the list",
+      "default": false,
+      "label": "Show completed sessions"
     }
   ],
   "dependencies": {
