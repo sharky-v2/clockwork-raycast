@@ -27,7 +27,7 @@ function pickFolder(): string | null {
   try {
     const result = execSync(
       `osascript -e 'set f to choose folder with prompt "Select clockwork project"' -e 'return POSIX path of f'`,
-      { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
+      { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
     ).trim();
     return result.replace(/\/$/, "") || null;
   } catch {
@@ -86,7 +86,11 @@ export default function Command() {
     const expanded = expandPath(path);
 
     if (!isClockworkProject(expanded)) {
-      await showToast({ style: Toast.Style.Failure, title: "Not a Clockwork Project", message: "No SESSION-STATE*.md found" });
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Not a Clockwork Project",
+        message: "No SESSION-STATE*.md found",
+      });
       return;
     }
 
@@ -104,7 +108,11 @@ export default function Command() {
       await showToast({ style: Toast.Style.Success, title: "Project Added" });
       setRefreshKey((k) => k + 1);
     } catch (e) {
-      await showToast({ style: Toast.Style.Failure, title: "Error", message: String(e) });
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Error",
+        message: String(e),
+      });
     }
   }
 
@@ -117,13 +125,20 @@ export default function Command() {
       await showToast({ style: Toast.Style.Success, title: "Removed" });
       setRefreshKey((k) => k + 1);
     } catch (e) {
-      await showToast({ style: Toast.Style.Failure, title: "Error", message: String(e) });
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Error",
+        message: String(e),
+      });
     }
   }
 
   async function handleClearAll() {
     await LocalStorage.removeItem(STORAGE_KEY);
-    await showToast({ style: Toast.Style.Success, title: "All projects cleared" });
+    await showToast({
+      style: Toast.Style.Success,
+      title: "All projects cleared",
+    });
     setRefreshKey((k) => k + 1);
   }
 
@@ -137,9 +152,20 @@ export default function Command() {
       actions={
         <ActionPanel>
           <Action title="Add Project" icon={Icon.Plus} onAction={handleAdd} />
-          <Action title="Refresh" icon={Icon.ArrowClockwise} shortcut={{ modifiers: ["cmd"], key: "r" }} onAction={() => setRefreshKey((k) => k + 1)} />
+          <Action
+            title="Refresh"
+            icon={Icon.ArrowClockwise}
+            shortcut={{ modifiers: ["cmd"], key: "r" }}
+            onAction={() => setRefreshKey((k) => k + 1)}
+          />
           {storedProjects.length > 0 && (
-            <Action title="Clear All" icon={Icon.Trash} style={Action.Style.Destructive} shortcut={{ modifiers: ["cmd", "shift"], key: "backspace" }} onAction={handleClearAll} />
+            <Action
+              title="Clear All"
+              icon={Icon.Trash}
+              style={Action.Style.Destructive}
+              shortcut={{ modifiers: ["cmd", "shift"], key: "backspace" }}
+              onAction={handleClearAll}
+            />
           )}
         </ActionPanel>
       }
@@ -153,14 +179,25 @@ export default function Command() {
               subtitle={p.path.replace(/^\/Users\/[^/]+/, "~")}
               icon={{ source: Icon.Folder, tintColor: Color.Blue }}
               accessories={[
-                { text: `${p.loaded!.sessions.length} session${p.loaded!.sessions.length !== 1 ? "s" : ""}` },
+                {
+                  text: `${p.loaded!.sessions.length} session${p.loaded!.sessions.length !== 1 ? "s" : ""}`,
+                },
                 { text: p.loaded!.git.branch, icon: Icon.CodeBlock },
               ]}
               actions={
                 <ActionPanel>
                   <Action.ShowInFinder path={p.path} />
-                  <Action title="Remove" icon={Icon.Trash} style={Action.Style.Destructive} onAction={() => handleRemove(p.path)} />
-                  <Action title="Add Project" icon={Icon.Plus} onAction={handleAdd} />
+                  <Action
+                    title="Remove"
+                    icon={Icon.Trash}
+                    style={Action.Style.Destructive}
+                    onAction={() => handleRemove(p.path)}
+                  />
+                  <Action
+                    title="Add Project"
+                    icon={Icon.Plus}
+                    onAction={handleAdd}
+                  />
                 </ActionPanel>
               }
             />
@@ -169,7 +206,10 @@ export default function Command() {
       )}
 
       {invalidProjects.length > 0 && (
-        <List.Section title="Failed to Load" subtitle={`${invalidProjects.length}`}>
+        <List.Section
+          title="Failed to Load"
+          subtitle={`${invalidProjects.length}`}
+        >
           {invalidProjects.map((p) => (
             <List.Item
               key={p.path}
@@ -179,9 +219,18 @@ export default function Command() {
               accessories={[{ text: p.error, icon: Icon.XMarkCircle }]}
               actions={
                 <ActionPanel>
-                  <Action title="Remove" icon={Icon.Trash} style={Action.Style.Destructive} onAction={() => handleRemove(p.path)} />
+                  <Action
+                    title="Remove"
+                    icon={Icon.Trash}
+                    style={Action.Style.Destructive}
+                    onAction={() => handleRemove(p.path)}
+                  />
                   <Action.ShowInFinder path={p.path} />
-                  <Action title="Add Project" icon={Icon.Plus} onAction={handleAdd} />
+                  <Action
+                    title="Add Project"
+                    icon={Icon.Plus}
+                    onAction={handleAdd}
+                  />
                 </ActionPanel>
               }
             />
@@ -196,7 +245,11 @@ export default function Command() {
           icon={Icon.Plus}
           actions={
             <ActionPanel>
-              <Action title="Add Project" icon={Icon.Plus} onAction={handleAdd} />
+              <Action
+                title="Add Project"
+                icon={Icon.Plus}
+                onAction={handleAdd}
+              />
             </ActionPanel>
           }
         />

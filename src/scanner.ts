@@ -32,7 +32,10 @@ function parseFrontmatter<T>(content: string): T | null {
  * Parse session info from markdown content when frontmatter is missing.
  * Handles real-world clockwork files that don't have YAML frontmatter.
  */
-function parseFromMarkdown(content: string, filePath: string): Partial<StateFrontmatter> | null {
+function parseFromMarkdown(
+  content: string,
+  filePath: string,
+): Partial<StateFrontmatter> | null {
   const result: Partial<StateFrontmatter> = {};
 
   // Extract project name from:
@@ -44,7 +47,9 @@ function parseFromMarkdown(content: string, filePath: string): Partial<StateFron
 
   // Extract session from:
   // "> **Session:** Ideation-1" or "> **Current Session:** 5"
-  const sessionMatch = content.match(/>\s*\*\*(?:Current\s+)?Session:\*\*\s*(.+?)(?:\s*\||\s*$)/im);
+  const sessionMatch = content.match(
+    />\s*\*\*(?:Current\s+)?Session:\*\*\s*(.+?)(?:\s*\||\s*$)/im,
+  );
   if (sessionMatch) {
     result.current_session = sessionMatch[1].trim();
   }
@@ -56,18 +61,18 @@ function parseFromMarkdown(content: string, filePath: string): Partial<StateFron
     const rawStatus = statusMatch[1].toUpperCase().trim();
     // Normalize status values
     const statusMap: Record<string, SessionStatus> = {
-      "READY": "READY",
-      "IN_PROGRESS": "IN_PROGRESS",
+      READY: "READY",
+      IN_PROGRESS: "IN_PROGRESS",
       "IN PROGRESS": "IN_PROGRESS",
-      "INPROGRESS": "IN_PROGRESS",
-      "TO_VERIFY": "TO_VERIFY",
+      INPROGRESS: "IN_PROGRESS",
+      TO_VERIFY: "TO_VERIFY",
       "TO VERIFY": "TO_VERIFY",
-      "TOVERIFY": "TO_VERIFY",
-      "BLOCKED": "BLOCKED",
-      "COMPLETE": "COMPLETE",
-      "COMPLETED": "COMPLETE",
-      "DONE": "COMPLETE",
-      "HANDOFF": "TO_VERIFY", // Treat HANDOFF as TO_VERIFY
+      TOVERIFY: "TO_VERIFY",
+      BLOCKED: "BLOCKED",
+      COMPLETE: "COMPLETE",
+      COMPLETED: "COMPLETE",
+      DONE: "COMPLETE",
+      HANDOFF: "TO_VERIFY", // Treat HANDOFF as TO_VERIFY
     };
     result.status = statusMap[rawStatus] || "IN_PROGRESS";
   }
@@ -126,7 +131,7 @@ function parseStateFile(
   filePath: string,
   projectPath: string,
   projectName: string,
-  projectGit: ReturnType<typeof getGitInfo>
+  projectGit: ReturnType<typeof getGitInfo>,
 ): Session[] {
   const sessions: Session[] = [];
 
@@ -244,7 +249,12 @@ export function loadProjects(projectPaths: string[]): ClockworkProject[] {
     // Parse all session files
     const sessions: Session[] = [];
     for (const filePath of sessionFiles) {
-      const fileSessions = parseStateFile(filePath, path, projectName, projectGit);
+      const fileSessions = parseStateFile(
+        filePath,
+        path,
+        projectName,
+        projectGit,
+      );
       sessions.push(...fileSessions);
     }
 

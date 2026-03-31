@@ -9,7 +9,9 @@
 
 type ExtensionPreferences = {
   /** Default Editor - Editor to open projects with */
-  "defaultEditor": "code" | "cursor" | "zed" | "subl"
+  "defaultEditor": "code" | "cursor" | "zed" | "subl",
+  /** Show Completed - Show completed sessions in the list */
+  "showComplete": boolean
 }
 
 /** Preferences accessible in all the extension's commands */

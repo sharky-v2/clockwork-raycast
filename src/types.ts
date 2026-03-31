@@ -1,5 +1,10 @@
 // Clockwork status values (uppercase)
-export type SessionStatus = "READY" | "IN_PROGRESS" | "TO_VERIFY" | "BLOCKED" | "COMPLETE";
+export type SessionStatus =
+  | "READY"
+  | "IN_PROGRESS"
+  | "TO_VERIFY"
+  | "BLOCKED"
+  | "COMPLETE";
 
 export interface SessionInfo {
   status: SessionStatus;
@@ -23,11 +28,14 @@ export interface StateFrontmatter {
 export interface RulesFrontmatter {
   project?: string;
   vscode_path?: string;
-  verification_targets?: Record<string, {
-    app: string;
-    url?: string;
-    path?: string;
-  }>;
+  verification_targets?: Record<
+    string,
+    {
+      app: string;
+      url?: string;
+      path?: string;
+    }
+  >;
   [key: string]: unknown;
 }
 
