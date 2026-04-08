@@ -52,7 +52,27 @@ const STATUS_ORDER: SessionStatus[] = [
   "COMPLETE",
 ];
 
-type ViewMode = "status" | "project";
+type ViewMode = "status" | "project" | "track";
+
+/**
+ * Check if a BLOCKED session is effectively unblocked
+ * (its blocker is TO_VERIFY or COMPLETE)
+ */
+function isEffectivelyUnblocked(
+  session: Session,
+  allSessions: Session[],
+): boolean {
+  if (session.status !== "BLOCKED" || !session.blocked_by) return false;
+
+  const blocker = allSessions.find(
+    (s) =>
+      s.id === session.blocked_by &&
+      s.projectPath === session.projectPath,
+  );
+
+  if (!blocker) return false;
+  return blocker.status === "TO_VERIFY" || blocker.status === "COMPLETE";
+}
 
 function pickFolder(): string | null {
   try {
@@ -111,27 +131,63 @@ function sessionTitle(s: Session): string {
 function DetailPanel({ s }: { s: Session }) {
   const cfg = STATUS_CONFIG[s.status];
 
+  // Core metadata
   const meta: string[] = [];
   meta.push(`**Status:** ${cfg.label}`);
   if (s.track) meta.push(`**Track:** ${s.track}`);
+  if (s.estimate) meta.push(`**Estimate:** ${s.estimate}`);
   meta.push(`**Branch:** \`${s.git.branch}\``);
   if (s.git.uncommittedChanges > 0)
     meta.push(`**Uncommitted:** ${s.git.uncommittedChanges} files`);
-  if (s.verify_with) meta.push(`**Verify:** ${s.verify_with}`);
-  if (s.blocked_by) meta.push(`**Blocked by:** ${s.blocked_by}`);
 
-  const md = `# ${s.projectName} / ${sessionTitle(s)}
+  // Dependencies
+  const deps: string[] = [];
+  if (s.blocked_by) deps.push(`**Blocked by:** ${s.blocked_by}`);
+  if (s.parallel_with?.length)
+    deps.push(`**Parallel with:** ${s.parallel_with.join(", ")}`);
 
-${s.goal ? `> ${s.goal}` : "*No goal specified*"}
+  // File declarations
+  const files: string[] = [];
+  if (s.creates?.length) files.push(`**Creates:** \`${s.creates.join("`, `")}\``);
+  if (s.modifies?.length) files.push(`**Modifies:** \`${s.modifies.join("`, `")}\``);
+  if (s.extends?.length) files.push(`**Extends:** \`${s.extends.join("`, `")}\``);
 
----
+  // Progress
+  const progress: string[] = [];
+  if (s.completed?.length) progress.push(`**Completed:** ${s.completed.join(", ")}`);
+  if (s.pending_verification?.length)
+    progress.push(`**Pending verification:** ${s.pending_verification.join(", ")}`);
 
-${meta.join("\n\n")}
+  // Verification & notes
+  const notes: string[] = [];
+  if (s.verify_with) notes.push(`**Verify with:** ${s.verify_with}`);
+  if (s.note) notes.push(`**Note:** ${s.note}`);
+  if (s.result) notes.push(`**Result:** ${s.result}`);
 
----
+  // Build markdown
+  let md = `# ${s.projectName} / ${sessionTitle(s)}\n\n`;
+  md += s.goal ? `> ${s.goal}\n\n` : "*No goal specified*\n\n";
+  md += "---\n\n";
+  md += meta.join("\n\n") + "\n\n";
 
-\`${s.projectPath.replace(/^\/Users\/[^/]+/, "~")}\`
-`;
+  if (deps.length) {
+    md += "---\n\n### Dependencies\n\n" + deps.join("\n\n") + "\n\n";
+  }
+
+  if (files.length) {
+    md += "---\n\n### Files\n\n" + files.join("\n\n") + "\n\n";
+  }
+
+  if (progress.length) {
+    md += "---\n\n### Progress\n\n" + progress.join("\n\n") + "\n\n";
+  }
+
+  if (notes.length) {
+    md += "---\n\n### Notes\n\n" + notes.join("\n\n") + "\n\n";
+  }
+
+  md += "---\n\n";
+  md += `\`${s.projectPath.replace(/^\/Users\/[^/]+/, "~")}\``;
 
   return <List.Item.Detail markdown={md} />;
 }
@@ -212,6 +268,13 @@ export default function Command() {
     (byProject[s.projectName] ||= []).push(s);
   }
 
+  // Group by track (across all projects)
+  const byTrack: Record<string, Session[]> = {};
+  for (const s of visibleSessions) {
+    const trackKey = s.track || "(no track)";
+    (byTrack[trackKey] ||= []).push(s);
+  }
+
   const viewDropdown = (
     <List.Dropdown
       tooltip="View"
@@ -219,30 +282,75 @@ export default function Command() {
       onChange={(v) => setViewMode(v as ViewMode)}
     >
       <List.Dropdown.Item title="By Project" value="project" />
+      <List.Dropdown.Item title="By Track" value="track" />
       <List.Dropdown.Item title="By Status" value="status" />
     </List.Dropdown>
   );
 
-  const renderSession = (s: Session, showProjectInTitle: boolean) => {
+  const renderSession = (
+    s: Session,
+    showProjectInTitle: boolean,
+    showTrackInTitle = false,
+  ) => {
     const cfg = STATUS_CONFIG[s.status];
     const primary = getPrimaryAction(s, editor);
+    const unblocked = isEffectivelyUnblocked(s, sessions);
 
-    const title = showProjectInTitle
-      ? `${s.projectName} / ${sessionTitle(s)}`
-      : sessionTitle(s);
+    let title = sessionTitle(s);
+    if (showProjectInTitle) title = `${s.projectName} / ${title}`;
+    if (showTrackInTitle && s.track) title = `${s.track} / ${title}`;
 
     const accessories: List.Item.Accessory[] = [];
-    if (s.blocked_by) {
+
+    // Effectively unblocked indicator (blocker is TO_VERIFY/COMPLETE)
+    if (unblocked) {
       accessories.push({
-        tag: { value: `← ${s.blocked_by}`, color: Color.SecondaryText },
+        tag: { value: "unblocked", color: Color.Green },
+        tooltip: `Blocker ${s.blocked_by} is done — can start now`,
       });
     }
+
+    // Progress indicator (completed/pending)
+    if (s.completed?.length || s.pending_verification?.length) {
+      const done = s.completed?.length || 0;
+      const pending = s.pending_verification?.length || 0;
+      accessories.push({
+        tag: { value: `${done}/${done + pending}`, color: Color.Purple },
+        tooltip: `${done} completed, ${pending} pending`,
+      });
+    }
+
+    // Blocked by (show in yellow if unblocked, red if truly blocked)
+    if (s.blocked_by) {
+      accessories.push({
+        tag: {
+          value: `← ${s.blocked_by}`,
+          color: unblocked ? Color.Yellow : Color.Red,
+        },
+        tooltip: unblocked
+          ? `Was blocked by ${s.blocked_by} (now done)`
+          : `Blocked by ${s.blocked_by}`,
+      });
+    }
+
+    // Parallel indicator
+    if (s.parallel_with?.length) {
+      accessories.push({
+        icon: { source: Icon.ArrowsContract, tintColor: Color.Green },
+        tooltip: `Can run with: ${s.parallel_with.join(", ")}`,
+      });
+    }
+
+    // Use green icon for effectively unblocked sessions
+    const icon = unblocked
+      ? { source: Icon.CircleProgress25, tintColor: Color.Green }
+      : { source: cfg.icon, tintColor: cfg.color };
 
     return (
       <List.Item
         key={`${s.projectPath}-${s.id}`}
         title={title}
-        icon={{ source: cfg.icon, tintColor: cfg.color }}
+        icon={icon}
         accessories={accessories}
         detail={<DetailPanel s={s} />}
         actions={
@@ -327,10 +435,31 @@ export default function Command() {
               title={projectName}
               subtitle={subtitle}
             >
-              {items.map((s) => renderSession(s, false))}
+              {items.map((s) => renderSession(s, false, false))}
             </List.Section>
           );
         })}
+
+      {viewMode === "track" &&
+        Object.entries(byTrack)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([trackName, items]) => {
+            const ready = items.filter((s) => s.status === "READY").length;
+            const inProgress = items.filter(
+              (s) => s.status === "IN_PROGRESS",
+            ).length;
+            const blocked = items.filter((s) => s.status === "BLOCKED").length;
+            const parts: string[] = [];
+            if (ready) parts.push(`${ready} ready`);
+            if (inProgress) parts.push(`${inProgress} active`);
+            if (blocked) parts.push(`${blocked} blocked`);
+            const subtitle = parts.length ? parts.join(" · ") : `${items.length}`;
+            return (
+              <List.Section key={trackName} title={trackName} subtitle={subtitle}>
+                {items.map((s) => renderSession(s, true, false))}
+              </List.Section>
+            );
+          })}
 
       {viewMode === "status" &&
         STATUS_ORDER.map((status) => {
@@ -343,7 +472,7 @@ export default function Command() {
               title={STATUS_CONFIG[status].label}
               subtitle={`${items.length}`}
             >
-              {items.map((s) => renderSession(s, true))}
+              {items.map((s) => renderSession(s, true, true))}
             </List.Section>
           );
         })}

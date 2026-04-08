@@ -6,11 +6,37 @@ export type SessionStatus =
   | "BLOCKED"
   | "COMPLETE";
 
+// Canonical session schema v1
 export interface SessionInfo {
+  // Core (always present)
   status: SessionStatus;
   goal?: string;
-  verify_with?: string | null;
+
+  // Organization
+  track?: string;
+
+  // Dependencies
   blocked_by?: string;
+  parallel_with?: string[];
+
+  // File declarations (for parallelism analysis)
+  creates?: string[];
+  modifies?: string[];
+  extends?: string[];
+
+  // Planning
+  estimate?: string;
+
+  // Progress tracking
+  completed?: string[];
+  pending_verification?: string[];
+
+  // Verification
+  verify_with?: string | null;
+
+  // Notes
+  note?: string;
+  result?: string;
 }
 
 export interface StateFrontmatter {
@@ -56,14 +82,39 @@ export interface Session {
   id: string;
   projectPath: string;
   projectName: string;
-  track?: string;
   filePath: string;
   status: SessionStatus;
+  git: GitInfo;
+
+  // Core
   goal?: string;
+
+  // Organization
+  track?: string;
+
+  // Dependencies
+  blocked_by?: string;
+  parallel_with?: string[];
+
+  // File declarations
+  creates?: string[];
+  modifies?: string[];
+  extends?: string[];
+
+  // Planning
+  estimate?: string;
+
+  // Progress tracking
+  completed?: string[];
+  pending_verification?: string[];
+
+  // Verification
   verify_with?: string | null;
   verification_target?: VerificationTarget;
-  blocked_by?: string;
-  git: GitInfo;
+
+  // Notes
+  note?: string;
+  result?: string;
 }
 
 export interface ClockworkProject {

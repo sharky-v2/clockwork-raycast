@@ -175,29 +175,52 @@ function parseStateFile(
             id: String(sessionId),
             projectPath,
             projectName: frontmatter.project || projectName,
-            track,
             filePath,
             status: info.status || frontmatter.status || "IN_PROGRESS",
-            goal: info.goal,
-            verify_with: info.verify_with,
-            blocked_by: info.blocked_by,
             git: projectGit,
+
+            // Core
+            goal: info.goal,
+
+            // Organization — prefer session-level track, fall back to file-level
+            track: info.track || track,
+
+            // Dependencies
+            blocked_by: info.blocked_by,
+            parallel_with: info.parallel_with,
+
+            // File declarations
+            creates: info.creates,
+            modifies: info.modifies,
+            extends: info.extends,
+
+            // Planning
+            estimate: info.estimate,
+
+            // Progress tracking
+            completed: info.completed,
+            pending_verification: info.pending_verification,
+
+            // Verification
+            verify_with: info.verify_with,
+
+            // Notes
+            note: info.note,
+            result: info.result,
           });
         }
       }
     } else {
-      // Single session from frontmatter
+      // Single session from frontmatter (legacy/minimal format)
       sessions.push({
         id: String(frontmatter.current_session || "1"),
         projectPath,
         projectName: frontmatter.project || projectName,
-        track,
         filePath,
         status: frontmatter.status || "IN_PROGRESS",
-        goal: undefined,
-        verify_with: undefined,
-        blocked_by: frontmatter.blocked_by,
         git: projectGit,
+        track,
+        blocked_by: frontmatter.blocked_by,
       });
     }
   } catch {
